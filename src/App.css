@@ -37,6 +37,20 @@ body { margin: 0; background: var(--bg); }
 h1 { margin: 0; font-size: 1.6rem; }
 .subtitle { margin: 4px 0 0; color: var(--muted); }
 
+.header-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.points-picker { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--muted); }
+.segmented {
+  display: inline-flex; border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden; background: var(--card);
+}
+.segmented button {
+  font: inherit; font-size: 0.9rem; font-variant-numeric: tabular-nums;
+  min-width: 36px; padding: 6px 0; cursor: pointer;
+  background: transparent; color: var(--text); border: none;
+}
+.segmented button + button { border-left: 1px solid var(--border); }
+.segmented button.active { background: var(--accent); color: #fff; }
+
 .days {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
   DAYS,
+  DEFAULT_POINTS,
+  MAX_POINTS,
   MAX_TEMP,
+  MIN_POINTS,
   MIN_TEMP,
   TEMP_STEP,
   clampTemp,
@@ -9,6 +12,7 @@ import {
   formatDay,
   orderErrors,
   parseDay,
+  resizeWeek,
   tempColor,
   toMinutes,
   type DayKey,
@@ -18,26 +22,45 @@ import {
 
 const STORAGE_KEY = 'avatto-trv06-schedule'
 
-function loadWeek(): WeekSchedule {
+type State = { pointCount: number; week: WeekSchedule }
+
+function loadState(): State {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...defaultWeek(), ...JSON.parse(raw) }
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      // older versions stored just the week, always with 6 points
+      const stored = 'week' in parsed ? parsed : { pointCount: DEFAULT_POINTS, week: parsed }
+      const pointCount = Math.min(MAX_POINTS, Math.max(MIN_POINTS, Number(stored.pointCount) || DEFAULT_POINTS))
+      return { pointCount, week: resizeWeek({ ...defaultWeek(pointCount), ...stored.week }, pointCount) }
+    }
   } catch {
     // ignore corrupted / unavailable storage
   }
-  return defaultWeek()
+  return { pointCount: DEFAULT_POINTS, week: defaultWeek() }
 }
 
+const POINT_OPTIONS = Array.from({ length: MAX_POINTS - MIN_POINTS + 1 }, (_, i) => MIN_POINTS + i)
+
 export default function App() {
-  const [week, setWeek] = useState<WeekSchedule>(loadWeek)
+  const [state, setState] = useState<State>(loadState)
+  const { pointCount, week } = state
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(week))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
     } catch {
       // storage unavailable
     }
-  }, [week])
+  }, [state])
+
+  const setWeek = (update: (w: WeekSchedule) => WeekSchedule) =>
+    setState((s) => ({ ...s, week: update(s.week) }))
+
+  const changePointCount = (count: number) => {
+    if (count < pointCount && !confirmShrink(pointCount - count)) return
+    setState((s) => ({ pointCount: count, week: resizeWeek(s.week, count) }))
+  }
 
   const setDay = (key: DayKey, day: DaySchedule) => setWeek((w) => ({ ...w, [key]: day }))
 
@@ -53,14 +76,32 @@ export default function App() {
       <header className="app-header">
         <div>
           <h1>AVATTO TRV06</h1>
-          <p className="subtitle">Generator harmonogramu · 6 punktów na dzień · {MIN_TEMP}–{MAX_TEMP} °C</p>
+          <p className="subtitle">Generator harmonogramu · {MIN_TEMP}–{MAX_TEMP} °C</p>
         </div>
-        <button
-          className="btn ghost"
-          onClick={() => confirmReset() && setWeek(defaultWeek())}
-        >
-          Resetuj wszystko
-        </button>
+        <div className="header-controls">
+          <div className="points-picker" role="radiogroup" aria-label="Liczba punktów na dzień">
+            <span>Punkty na dzień</span>
+            <div className="segmented">
+              {POINT_OPTIONS.map((n) => (
+                <button
+                  key={n}
+                  role="radio"
+                  aria-checked={n === pointCount}
+                  className={n === pointCount ? 'active' : ''}
+                  onClick={() => n !== pointCount && changePointCount(n)}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            className="btn ghost"
+            onClick={() => confirmReset() && setState((s) => ({ ...s, week: defaultWeek(s.pointCount) }))}
+          >
+            Resetuj wszystko
+          </button>
+        </div>
       </header>
 
       <main className="days">
@@ -70,6 +111,7 @@ export default function App() {
             dayKey={d.key}
             label={d.label}
             day={week[d.key]}
+            pointCount={pointCount}
             onChange={(day) => setDay(d.key, day)}
             onCopyTo={(targets) => copyDayTo(d.key, targets)}
           />
@@ -77,6 +119,10 @@ export default function App() {
       </main>
     </div>
   )
+}
+
+function confirmShrink(removed: number) {
+  return window.confirm(`Ostatnie punkty (${removed}) zostaną usunięte z każdego dnia. Kontynuować?`)
 }
 
 function confirmReset() {
@@ -87,11 +133,12 @@ type DayCardProps = {
   dayKey: DayKey
   label: string
   day: DaySchedule
+  pointCount: number
   onChange: (day: DaySchedule) => void
   onCopyTo: (targets: DayKey[]) => void
 }
 
-function DayCard({ dayKey, label, day, onChange, onCopyTo }: DayCardProps) {
+function DayCard({ dayKey, label, day, pointCount, onChange, onCopyTo }: DayCardProps) {
   const [copied, setCopied] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
@@ -110,7 +157,7 @@ function DayCard({ dayKey, label, day, onChange, onCopyTo }: DayCardProps) {
   }
 
   const applyImport = () => {
-    const parsed = parseDay(importText)
+    const parsed = parseDay(importText, pointCount)
     if (typeof parsed === 'string') {
       setImportError(parsed)
       return

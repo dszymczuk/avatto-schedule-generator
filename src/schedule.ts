@@ -1,7 +1,9 @@
 export const MIN_TEMP = 16
 export const MAX_TEMP = 28
 export const TEMP_STEP = 0.5
-export const POINTS_PER_DAY = 6
+export const MIN_POINTS = 4
+export const MAX_POINTS = 8
+export const DEFAULT_POINTS = 6
 
 export type Point = { time: string; temp: number }
 export type DaySchedule = Point[]
@@ -28,8 +30,35 @@ export const DEFAULT_DAY: DaySchedule = [
   { time: '22:00', temp: 16 },
 ]
 
-export function defaultWeek(): WeekSchedule {
-  return Object.fromEntries(DAYS.map((d) => [d.key, DEFAULT_DAY.map((p) => ({ ...p }))])) as WeekSchedule
+export function defaultWeek(count = DEFAULT_POINTS): WeekSchedule {
+  return Object.fromEntries(DAYS.map((d) => [d.key, resizeDay(DEFAULT_DAY, count)])) as WeekSchedule
+}
+
+export function resizeWeek(week: WeekSchedule, count: number): WeekSchedule {
+  return Object.fromEntries(DAYS.map((d) => [d.key, resizeDay(week[d.key], count)])) as WeekSchedule
+}
+
+/**
+ * Drops trailing points, or inserts new ones into the largest time gap.
+ * A new point copies the temperature of the point before it, so the effective schedule doesn't change.
+ */
+export function resizeDay(day: DaySchedule, count: number): DaySchedule {
+  const result = day.slice(0, count).map((p) => ({ ...p }))
+  while (result.length < count) {
+    let bestIdx = result.length - 1
+    let bestGap = 24 * 60 - toMinutes(result[bestIdx].time)
+    for (let i = 0; i < result.length - 1; i++) {
+      const gap = toMinutes(result[i + 1].time) - toMinutes(result[i].time)
+      if (gap > bestGap) {
+        bestGap = gap
+        bestIdx = i
+      }
+    }
+    const start = toMinutes(result[bestIdx].time)
+    const mid = start + Math.max(5, Math.floor(bestGap / 2 / 5) * 5)
+    result.splice(bestIdx + 1, 0, { time: fromMinutes(Math.min(mid, 24 * 60 - 1)), temp: result[bestIdx].temp })
+  }
+  return result
 }
 
 export function clampTemp(t: number): number {
@@ -42,6 +71,10 @@ export function toMinutes(time: string): number {
   return h * 60 + m
 }
 
+export function fromMinutes(min: number): string {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
+}
+
 export function formatDay(day: DaySchedule): string {
   return day.map((p) => `${p.time}/${p.temp.toFixed(1)}`).join(' ')
 }
@@ -49,9 +82,10 @@ export function formatDay(day: DaySchedule): string {
 const POINT_RE = /^([01]\d|2[0-3]):([0-5]\d)\/(\d{1,2}(?:\.\d)?)$/
 
 /** Parses "HH:MM/C HH:MM/C ..." – returns an error message instead of a schedule when invalid. */
-export function parseDay(input: string): DaySchedule | string {
+export function parseDay(input: string, count: number): DaySchedule | string {
   const parts = input.trim().split(/\s+/).filter(Boolean)
-  if (parts.length !== POINTS_PER_DAY) return `Oczekiwano ${POINTS_PER_DAY} punktów, znaleziono ${parts.length}`
+  if (parts.length !== count)
+    return `Oczekiwano ${count} punktów, znaleziono ${parts.length} – zmień liczbę punktów na dzień`
   const result: DaySchedule = []
   for (const part of parts) {
     const m = POINT_RE.exec(part)
