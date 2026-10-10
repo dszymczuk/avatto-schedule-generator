@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import {
   DEFAULT_DAY,
   DEFAULT_POINTS,
@@ -21,44 +21,46 @@ const STORAGE_KEY = 'sonoff-trv-zbt-schedule'
 // key used before the app was renamed – read once so the saved schedule survives the rename
 const LEGACY_STORAGE_KEY = 'avatto-trv06-schedule'
 
-function loadSchedule(): DaySchedule {
+const SCHEDULE_COUNT = 2
+
+function sanitize(stored: unknown): DaySchedule {
+  if (!Array.isArray(stored) || stored.length === 0) return resizeDay(DEFAULT_DAY, DEFAULT_POINTS)
+  // clamp in case the allowed temperature range changed since the schedule was saved
+  const clamped = stored.map((p: DaySchedule[number]) => ({ ...p, temp: clampTemp(p.temp) }))
+  return resizeDay(clamped, Math.min(MAX_POINTS, Math.max(MIN_POINTS, clamped.length)))
+}
+
+function loadSchedules(): DaySchedule[] {
+  let stored: unknown[] = []
   try {
     const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      // older versions stored a whole week (optionally wrapped with pointCount) – keep monday
-      const stored = parsed.schedule ?? parsed.week?.monday ?? parsed.monday
-      if (Array.isArray(stored) && stored.length > 0) {
-        // clamp in case the allowed temperature range changed since the schedule was saved
-        const clamped = stored.map((p: DaySchedule[number]) => ({ ...p, temp: clampTemp(p.temp) }))
-        return resizeDay(clamped, Math.min(MAX_POINTS, Math.max(MIN_POINTS, clamped.length)))
-      }
+      // older versions stored a single schedule, or a whole week (optionally wrapped with pointCount) – keep monday
+      stored = parsed.schedules ?? [parsed.schedule ?? parsed.week?.monday ?? parsed.monday]
     }
   } catch {
     // ignore corrupted / unavailable storage
   }
-  return resizeDay(DEFAULT_DAY, DEFAULT_POINTS)
+  return Array.from({ length: SCHEDULE_COUNT }, (_, i) => sanitize(stored[i]))
 }
 
 const POINT_OPTIONS = Array.from({ length: MAX_POINTS - MIN_POINTS + 1 }, (_, i) => MIN_POINTS + i)
 
 export default function App() {
-  const [schedule, setSchedule] = useState<DaySchedule>(loadSchedule)
-  const pointCount = schedule.length
+  const [schedules, setSchedules] = useState<DaySchedule[]>(loadSchedules)
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ schedule }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ schedules }))
       localStorage.removeItem(LEGACY_STORAGE_KEY)
     } catch {
       // storage unavailable
     }
-  }, [schedule])
+  }, [schedules])
 
-  const changePointCount = (count: number) => {
-    if (count < pointCount && !confirmShrink(pointCount - count)) return
-    setSchedule((s) => resizeDay(s, count))
-  }
+  const setSchedule = (index: number, day: DaySchedule) =>
+    setSchedules((all) => all.map((s, i) => (i === index ? day : s)))
 
   return (
     <div className="app">
@@ -69,37 +71,10 @@ export default function App() {
         </p>
       </header>
 
-      <main>
-        <ScheduleCard
-          day={schedule}
-          onChange={setSchedule}
-          controls={
-            <>
-              <div className="points-picker" role="radiogroup" aria-label="Liczba punktów">
-                <span>Liczba punktów</span>
-                <div className="segmented">
-                  {POINT_OPTIONS.map((n) => (
-                    <button
-                      key={n}
-                      role="radio"
-                      aria-checked={n === pointCount}
-                      className={n === pointCount ? 'active' : ''}
-                      onClick={() => n !== pointCount && changePointCount(n)}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <button
-                className="btn ghost"
-                onClick={() => confirmReset() && setSchedule(resizeDay(DEFAULT_DAY, pointCount))}
-              >
-                Resetuj
-              </button>
-            </>
-          }
-        />
+      <main className="schedules">
+        {schedules.map((day, i) => (
+          <ScheduleCard key={i} title={`Harmonogram ${i + 1}`} day={day} onChange={(d) => setSchedule(i, d)} />
+        ))}
       </main>
     </div>
   )
@@ -110,21 +85,21 @@ function confirmShrink(removed: number) {
 }
 
 function confirmReset() {
-  return window.confirm('Przywrócić domyślny harmonogram?')
+  return window.confirm('Przywrócić domyślne wartości w tym harmonogramie?')
 }
 
 type ScheduleCardProps = {
+  title: string
   day: DaySchedule
   onChange: (day: DaySchedule) => void
-  controls: ReactNode
 }
 
-function ScheduleCard({ day, onChange, controls }: ScheduleCardProps) {
+function ScheduleCard({ title, day, onChange }: ScheduleCardProps) {
   const [copied, setCopied] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
 
+  const pointCount = day.length
   const output = formatDay(day)
   const errors = orderErrors(day)
 
@@ -137,6 +112,11 @@ function ScheduleCard({ day, onChange, controls }: ScheduleCardProps) {
     setTimeout(() => setCopied(false), 1500)
   }
 
+  const changePointCount = (count: number) => {
+    if (count < pointCount && !confirmShrink(pointCount - count)) return
+    onChange(resizeDay(day, count))
+  }
+
   const applyImport = () => {
     const parsed = parseDay(importText)
     if (typeof parsed === 'string') {
@@ -144,14 +124,37 @@ function ScheduleCard({ day, onChange, controls }: ScheduleCardProps) {
       return
     }
     onChange(parsed)
-    setImportOpen(false)
     setImportText('')
     setImportError(null)
   }
 
   return (
     <section className="day">
-      <div className="day-head">{controls}</div>
+      <div className="day-head">
+        <h2>{title}</h2>
+        <div className="points-picker" role="radiogroup" aria-label="Liczba punktów">
+          <span>Liczba punktów</span>
+          <div className="segmented">
+            {POINT_OPTIONS.map((n) => (
+              <button
+                key={n}
+                role="radio"
+                aria-checked={n === pointCount}
+                className={n === pointCount ? 'active' : ''}
+                onClick={() => n !== pointCount && changePointCount(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button
+          className="btn ghost"
+          onClick={() => confirmReset() && onChange(resizeDay(DEFAULT_DAY, pointCount))}
+        >
+          Resetuj
+        </button>
+      </div>
 
       <Timeline day={day} valid={errors.length === 0} />
 
@@ -192,32 +195,25 @@ function ScheduleCard({ day, onChange, controls }: ScheduleCardProps) {
         </button>
       </div>
 
-      {importOpen ? (
-        <div className="import">
+      <div className="import">
+        <label>
+          <span>Wczytaj harmonogram z tekstu</span>
           <input
             type="text"
-            placeholder="06:00/21.0 08:00/16.0 …"
+            placeholder="06:00/21.0 08:00/18.0 12:00/21.0 14:00/18.0 …"
             value={importText}
             onChange={(e) => {
               setImportText(e.target.value)
               setImportError(null)
             }}
             onKeyDown={(e) => e.key === 'Enter' && applyImport()}
-            autoFocus
           />
-          <button className="btn" onClick={applyImport}>
-            Wczytaj
-          </button>
-          <button className="btn ghost" onClick={() => setImportOpen(false)}>
-            Anuluj
-          </button>
-          {importError && <p className="warn">{importError}</p>}
-        </div>
-      ) : (
-        <button className="link" onClick={() => setImportOpen(true)}>
-          Wklej istniejący harmonogram
+        </label>
+        <button className="btn" onClick={applyImport} disabled={!importText.trim()}>
+          Wczytaj
         </button>
-      )}
+        {importError && <p className="warn">{importError}</p>}
+      </div>
     </section>
   )
 }
