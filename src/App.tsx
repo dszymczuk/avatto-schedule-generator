@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  DAYS,
+  DEFAULT_DAY,
   DEFAULT_POINTS,
   MAX_POINTS,
   MAX_TEMP,
@@ -8,137 +8,118 @@ import {
   MIN_TEMP,
   TEMP_STEP,
   clampTemp,
-  defaultWeek,
   formatDay,
   orderErrors,
   parseDay,
-  resizeWeek,
+  resizeDay,
   tempColor,
   toMinutes,
-  type DayKey,
   type DaySchedule,
-  type WeekSchedule,
 } from './schedule'
 
-const STORAGE_KEY = 'avatto-trv06-schedule'
+const STORAGE_KEY = 'sonoff-trv-zbt-schedule'
+// key used before the app was renamed – read once so the saved schedule survives the rename
+const LEGACY_STORAGE_KEY = 'avatto-trv06-schedule'
 
-type State = { pointCount: number; week: WeekSchedule }
-
-function loadState(): State {
+function loadSchedule(): DaySchedule {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      // older versions stored just the week, always with 6 points
-      const stored = 'week' in parsed ? parsed : { pointCount: DEFAULT_POINTS, week: parsed }
-      const pointCount = Math.min(MAX_POINTS, Math.max(MIN_POINTS, Number(stored.pointCount) || DEFAULT_POINTS))
-      return { pointCount, week: resizeWeek({ ...defaultWeek(pointCount), ...stored.week }, pointCount) }
+      // older versions stored a whole week (optionally wrapped with pointCount) – keep monday
+      const stored = parsed.schedule ?? parsed.week?.monday ?? parsed.monday
+      if (Array.isArray(stored) && stored.length > 0) {
+        // clamp in case the allowed temperature range changed since the schedule was saved
+        const clamped = stored.map((p: DaySchedule[number]) => ({ ...p, temp: clampTemp(p.temp) }))
+        return resizeDay(clamped, Math.min(MAX_POINTS, Math.max(MIN_POINTS, clamped.length)))
+      }
     }
   } catch {
     // ignore corrupted / unavailable storage
   }
-  return { pointCount: DEFAULT_POINTS, week: defaultWeek() }
+  return resizeDay(DEFAULT_DAY, DEFAULT_POINTS)
 }
 
 const POINT_OPTIONS = Array.from({ length: MAX_POINTS - MIN_POINTS + 1 }, (_, i) => MIN_POINTS + i)
 
 export default function App() {
-  const [state, setState] = useState<State>(loadState)
-  const { pointCount, week } = state
+  const [schedule, setSchedule] = useState<DaySchedule>(loadSchedule)
+  const pointCount = schedule.length
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ schedule }))
+      localStorage.removeItem(LEGACY_STORAGE_KEY)
     } catch {
       // storage unavailable
     }
-  }, [state])
-
-  const setWeek = (update: (w: WeekSchedule) => WeekSchedule) =>
-    setState((s) => ({ ...s, week: update(s.week) }))
+  }, [schedule])
 
   const changePointCount = (count: number) => {
     if (count < pointCount && !confirmShrink(pointCount - count)) return
-    setState((s) => ({ pointCount: count, week: resizeWeek(s.week, count) }))
+    setSchedule((s) => resizeDay(s, count))
   }
-
-  const setDay = (key: DayKey, day: DaySchedule) => setWeek((w) => ({ ...w, [key]: day }))
-
-  const copyDayTo = (from: DayKey, targets: DayKey[]) =>
-    setWeek((w) => {
-      const next = { ...w }
-      for (const t of targets) next[t] = w[from].map((p) => ({ ...p }))
-      return next
-    })
 
   return (
     <div className="app">
       <header className="app-header">
-        <div>
-          <h1>AVATTO TRV06</h1>
-          <p className="subtitle">Generator harmonogramu · {MIN_TEMP}–{MAX_TEMP} °C</p>
-        </div>
-        <div className="header-controls">
-          <div className="points-picker" role="radiogroup" aria-label="Liczba punktów na dzień">
-            <span>Punkty na dzień</span>
-            <div className="segmented">
-              {POINT_OPTIONS.map((n) => (
-                <button
-                  key={n}
-                  role="radio"
-                  aria-checked={n === pointCount}
-                  className={n === pointCount ? 'active' : ''}
-                  onClick={() => n !== pointCount && changePointCount(n)}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button
-            className="btn ghost"
-            onClick={() => confirmReset() && setState((s) => ({ ...s, week: defaultWeek(s.pointCount) }))}
-          >
-            Resetuj wszystko
-          </button>
-        </div>
+        <h1>Harmonogram Sonoff TRV-ZBT</h1>
+        <p className="subtitle">
+          Generator harmonogramu · {MIN_POINTS}–{MAX_POINTS} punktów · {MIN_TEMP}–{MAX_TEMP} °C
+        </p>
       </header>
 
-      <main className="days">
-        {DAYS.map((d) => (
-          <DayCard
-            key={d.key}
-            dayKey={d.key}
-            label={d.label}
-            day={week[d.key]}
-            pointCount={pointCount}
-            onChange={(day) => setDay(d.key, day)}
-            onCopyTo={(targets) => copyDayTo(d.key, targets)}
-          />
-        ))}
+      <main>
+        <ScheduleCard
+          day={schedule}
+          onChange={setSchedule}
+          controls={
+            <>
+              <div className="points-picker" role="radiogroup" aria-label="Liczba punktów">
+                <span>Liczba punktów</span>
+                <div className="segmented">
+                  {POINT_OPTIONS.map((n) => (
+                    <button
+                      key={n}
+                      role="radio"
+                      aria-checked={n === pointCount}
+                      className={n === pointCount ? 'active' : ''}
+                      onClick={() => n !== pointCount && changePointCount(n)}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                className="btn ghost"
+                onClick={() => confirmReset() && setSchedule(resizeDay(DEFAULT_DAY, pointCount))}
+              >
+                Resetuj
+              </button>
+            </>
+          }
+        />
       </main>
     </div>
   )
 }
 
 function confirmShrink(removed: number) {
-  return window.confirm(`Ostatnie punkty (${removed}) zostaną usunięte z każdego dnia. Kontynuować?`)
+  return window.confirm(`Ostatnie punkty (${removed}) zostaną usunięte. Kontynuować?`)
 }
 
 function confirmReset() {
-  return window.confirm('Przywrócić domyślny harmonogram dla wszystkich dni?')
+  return window.confirm('Przywrócić domyślny harmonogram?')
 }
 
-type DayCardProps = {
-  dayKey: DayKey
-  label: string
+type ScheduleCardProps = {
   day: DaySchedule
-  pointCount: number
   onChange: (day: DaySchedule) => void
-  onCopyTo: (targets: DayKey[]) => void
+  controls: ReactNode
 }
 
-function DayCard({ dayKey, label, day, pointCount, onChange, onCopyTo }: DayCardProps) {
+function ScheduleCard({ day, onChange, controls }: ScheduleCardProps) {
   const [copied, setCopied] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
@@ -157,7 +138,7 @@ function DayCard({ dayKey, label, day, pointCount, onChange, onCopyTo }: DayCard
   }
 
   const applyImport = () => {
-    const parsed = parseDay(importText, pointCount)
+    const parsed = parseDay(importText)
     if (typeof parsed === 'string') {
       setImportError(parsed)
       return
@@ -168,37 +149,13 @@ function DayCard({ dayKey, label, day, pointCount, onChange, onCopyTo }: DayCard
     setImportError(null)
   }
 
-  const otherDays = DAYS.filter((d) => d.key !== dayKey)
-  const weekdays = otherDays.filter((d) => !['saturday', 'sunday'].includes(d.key)).map((d) => d.key)
-
   return (
     <section className="day">
-      <div className="day-head">
-        <h2>{label}</h2>
-        <select
-          className="copy-select"
-          value=""
-          onChange={(e) => {
-            const v = e.target.value
-            if (v === 'all') onCopyTo(otherDays.map((d) => d.key))
-            else if (v === 'weekdays') onCopyTo(weekdays)
-            else if (v) onCopyTo([v as DayKey])
-          }}
-        >
-          <option value="">Kopiuj do…</option>
-          <option value="all">Wszystkich dni</option>
-          <option value="weekdays">Dni roboczych (pn–pt)</option>
-          {otherDays.map((d) => (
-            <option key={d.key} value={d.key}>
-              {d.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <div className="day-head">{controls}</div>
 
       <Timeline day={day} valid={errors.length === 0} />
 
-      <ol className="points">
+      <ol className="points" style={{ '--rows': Math.ceil(day.length / 2) } as CSSProperties}>
         {day.map((p, i) => (
           <li key={i} className={errors.includes(i) ? 'point invalid' : 'point'}>
             <span className="idx">{i + 1}</span>
@@ -217,7 +174,7 @@ function DayCard({ dayKey, label, day, pointCount, onChange, onCopyTo }: DayCard
               style={{ accentColor: tempColor(p.temp) }}
               onChange={(e) => updatePoint(i, { temp: clampTemp(Number(e.target.value)) })}
             />
-            <span className="temp" style={{ color: tempColor(p.temp) }}>
+            <span className="temp" style={{ '--c': tempColor(p.temp) } as CSSProperties}>
               {p.temp.toFixed(1)}°
             </span>
           </li>

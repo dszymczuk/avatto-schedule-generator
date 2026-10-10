@@ -1,5 +1,5 @@
 {
-  "name": "avatto-schedule-generator",
+  "name": "sonoff-trv-zbt-schedule-generator",
   "private": true,
   "version": "0.1.0",
   "type": "module",

@@ -1,42 +1,21 @@
-export const MIN_TEMP = 16
+export const MIN_TEMP = 18
 export const MAX_TEMP = 28
 export const TEMP_STEP = 0.5
 export const MIN_POINTS = 4
-export const MAX_POINTS = 8
+export const MAX_POINTS = 12
 export const DEFAULT_POINTS = 6
 
 export type Point = { time: string; temp: number }
 export type DaySchedule = Point[]
 
-export const DAYS = [
-  { key: 'monday', label: 'Poniedziałek' },
-  { key: 'tuesday', label: 'Wtorek' },
-  { key: 'wednesday', label: 'Środa' },
-  { key: 'thursday', label: 'Czwartek' },
-  { key: 'friday', label: 'Piątek' },
-  { key: 'saturday', label: 'Sobota' },
-  { key: 'sunday', label: 'Niedziela' },
-] as const
-
-export type DayKey = (typeof DAYS)[number]['key']
-export type WeekSchedule = Record<DayKey, DaySchedule>
-
 export const DEFAULT_DAY: DaySchedule = [
   { time: '06:00', temp: 21 },
-  { time: '08:00', temp: 16 },
+  { time: '08:00', temp: MIN_TEMP },
   { time: '12:00', temp: 21 },
-  { time: '14:00', temp: 16 },
+  { time: '14:00', temp: MIN_TEMP },
   { time: '18:00', temp: 21 },
-  { time: '22:00', temp: 16 },
+  { time: '22:00', temp: MIN_TEMP },
 ]
-
-export function defaultWeek(count = DEFAULT_POINTS): WeekSchedule {
-  return Object.fromEntries(DAYS.map((d) => [d.key, resizeDay(DEFAULT_DAY, count)])) as WeekSchedule
-}
-
-export function resizeWeek(week: WeekSchedule, count: number): WeekSchedule {
-  return Object.fromEntries(DAYS.map((d) => [d.key, resizeDay(week[d.key], count)])) as WeekSchedule
-}
 
 /**
  * Drops trailing points, or inserts new ones into the largest time gap.
@@ -82,10 +61,10 @@ export function formatDay(day: DaySchedule): string {
 const POINT_RE = /^([01]\d|2[0-3]):([0-5]\d)\/(\d{1,2}(?:\.\d)?)$/
 
 /** Parses "HH:MM/C HH:MM/C ..." – returns an error message instead of a schedule when invalid. */
-export function parseDay(input: string, count: number): DaySchedule | string {
+export function parseDay(input: string): DaySchedule | string {
   const parts = input.trim().split(/\s+/).filter(Boolean)
-  if (parts.length !== count)
-    return `Oczekiwano ${count} punktów, znaleziono ${parts.length} – zmień liczbę punktów na dzień`
+  if (parts.length < MIN_POINTS || parts.length > MAX_POINTS)
+    return `Oczekiwano od ${MIN_POINTS} do ${MAX_POINTS} punktów, znaleziono ${parts.length}`
   const result: DaySchedule = []
   for (const part of parts) {
     const m = POINT_RE.exec(part)
@@ -106,9 +85,13 @@ export function orderErrors(day: DaySchedule): number[] {
   return errs
 }
 
-/** Maps temperature to a color from cool blue (16°C) to warm red (28°C). */
+/**
+ * Maps temperature to a color: violet → blue → cyan → green → yellow → orange → red → crimson.
+ * Half degrees are drawn lighter than full degrees so neighbouring 0.5° steps stay distinguishable.
+ */
 export function tempColor(temp: number): string {
   const t = (temp - MIN_TEMP) / (MAX_TEMP - MIN_TEMP)
-  const hue = 210 - t * 210
-  return `hsl(${hue} 75% 55%)`
+  const hue = (285 - t * 300 + 360) % 360
+  const lightness = Number.isInteger(temp) ? 50 : 66
+  return `hsl(${hue.toFixed(0)} 85% ${lightness}%)`
 }
