@@ -91,12 +91,27 @@ input[type='time'], .import input {
   }
 }
 .point {
-  display: grid; grid-template-columns: 20px auto 1fr 60px;
+  display: grid; grid-template-columns: 20px auto auto 1fr 60px auto;
   align-items: center; gap: 10px;
   padding: 4px 6px; border-radius: 8px;
 }
 .point.invalid { background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .point.invalid input[type='time'] { border-color: var(--warn); }
+.move { display: flex; flex-direction: column; gap: 2px; }
+.move button {
+  font-size: 0.6rem; line-height: 1; padding: 3px 6px; cursor: pointer;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+}
+.move button:disabled { opacity: 0.3; cursor: default; }
+.remove {
+  font-size: 0.8rem; line-height: 1; padding: 6px 8px; cursor: pointer;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.remove:hover:not(:disabled) { color: var(--warn); border-color: var(--warn); }
+.remove:disabled { opacity: 0.3; cursor: default; }
+.order-warn { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .idx { color: var(--muted); font-size: 0.8rem; text-align: right; }
 .point input[type='range'] { width: 100%; }
 .temp {

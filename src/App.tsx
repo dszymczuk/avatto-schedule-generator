@@ -106,6 +106,16 @@ function ScheduleCard({ title, day, onChange }: ScheduleCardProps) {
   const updatePoint = (i: number, patch: Partial<DaySchedule[number]>) =>
     onChange(day.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
 
+  const movePoint = (i: number, dir: -1 | 1) => {
+    const next = [...day]
+    ;[next[i], next[i + dir]] = [next[i + dir], next[i]]
+    onChange(next)
+  }
+
+  const removePoint = (i: number) => onChange(day.filter((_, idx) => idx !== i))
+
+  const sortByTime = () => onChange([...day].sort((a, b) => toMinutes(a.time) - toMinutes(b.time)))
+
   const copy = async () => {
     await navigator.clipboard.writeText(output)
     setCopied(true)
@@ -162,6 +172,18 @@ function ScheduleCard({ title, day, onChange }: ScheduleCardProps) {
         {day.map((p, i) => (
           <li key={i} className={errors.includes(i) ? 'point invalid' : 'point'}>
             <span className="idx">{i + 1}</span>
+            <span className="move">
+              <button aria-label={`Przesuń punkt ${i + 1} w górę`} disabled={i === 0} onClick={() => movePoint(i, -1)}>
+                ▲
+              </button>
+              <button
+                aria-label={`Przesuń punkt ${i + 1} w dół`}
+                disabled={i === day.length - 1}
+                onClick={() => movePoint(i, 1)}
+              >
+                ▼
+              </button>
+            </span>
             <input
               type="time"
               className="time"
@@ -180,12 +202,26 @@ function ScheduleCard({ title, day, onChange }: ScheduleCardProps) {
             <span className="temp" style={{ '--c': tempColor(p.temp) } as CSSProperties}>
               {p.temp.toFixed(1)}°
             </span>
+            <button
+              className="remove"
+              aria-label={`Usuń punkt ${i + 1}`}
+              title={pointCount <= MIN_POINTS ? `Minimum ${MIN_POINTS} punkty` : 'Usuń punkt'}
+              disabled={pointCount <= MIN_POINTS}
+              onClick={() => removePoint(i)}
+            >
+              ✕
+            </button>
           </li>
         ))}
       </ol>
 
       {errors.length > 0 && (
-        <p className="warn">Godziny muszą rosnąć – popraw punkt {errors.map((i) => i + 1).join(', ')}.</p>
+        <div className="order-warn">
+          <p className="warn">Godziny muszą rosnąć – popraw punkt {errors.map((i) => i + 1).join(', ')}.</p>
+          <button className="btn" onClick={sortByTime}>
+            Sortuj wg godziny
+          </button>
+        </div>
       )}
 
       <div className="output">

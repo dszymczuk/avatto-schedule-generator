@@ -17,25 +17,13 @@ export const DEFAULT_DAY: DaySchedule = [
   { time: '22:00', temp: MIN_TEMP },
 ]
 
-/**
- * Drops trailing points, or inserts new ones into the largest time gap.
- * A new point copies the temperature of the point before it, so the effective schedule doesn't change.
- */
+export const NEW_POINT_TIME = '23:59'
+
+/** Drops trailing points, or appends new ones at the end with NEW_POINT_TIME and the last point's temperature. */
 export function resizeDay(day: DaySchedule, count: number): DaySchedule {
   const result = day.slice(0, count).map((p) => ({ ...p }))
   while (result.length < count) {
-    let bestIdx = result.length - 1
-    let bestGap = 24 * 60 - toMinutes(result[bestIdx].time)
-    for (let i = 0; i < result.length - 1; i++) {
-      const gap = toMinutes(result[i + 1].time) - toMinutes(result[i].time)
-      if (gap > bestGap) {
-        bestGap = gap
-        bestIdx = i
-      }
-    }
-    const start = toMinutes(result[bestIdx].time)
-    const mid = start + Math.max(5, Math.floor(bestGap / 2 / 5) * 5)
-    result.splice(bestIdx + 1, 0, { time: fromMinutes(Math.min(mid, 24 * 60 - 1)), temp: result[bestIdx].temp })
+    result.push({ time: NEW_POINT_TIME, temp: result[result.length - 1].temp })
   }
   return result
 }
@@ -48,10 +36,6 @@ export function clampTemp(t: number): number {
 export function toMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number)
   return h * 60 + m
-}
-
-export function fromMinutes(min: number): string {
-  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
 }
 
 export function formatDay(day: DaySchedule): string {
