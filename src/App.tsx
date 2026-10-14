@@ -30,37 +30,93 @@ function sanitize(stored: unknown): DaySchedule {
   return resizeDay(clamped, Math.min(MAX_POINTS, Math.max(MIN_POINTS, clamped.length)))
 }
 
-function loadSchedules(): DaySchedule[] {
-  let stored: unknown[] = []
+const MAX_PROFILES = 10
+
+type Profile = { id: string; name: string; schedules: DaySchedule[] }
+type State = { profiles: Profile[]; activeId: string }
+
+function newId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function newProfile(name: string, schedules: unknown[] = []): Profile {
+  return { id: newId(), name, schedules: Array.from({ length: SCHEDULE_COUNT }, (_, i) => sanitize(schedules[i])) }
+}
+
+/** First "Głowica N" name not used by any profile yet. */
+function nextProfileName(profiles: Profile[]) {
+  const names = new Set(profiles.map((p) => p.name))
+  let n = profiles.length + 1
+  while (names.has(`Głowica ${n}`)) n++
+  return `Głowica ${n}`
+}
+
+function loadState(): State {
   try {
     const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      // older versions stored a single schedule, or a whole week (optionally wrapped with pointCount) – keep monday
-      stored = parsed.schedules ?? [parsed.schedule ?? parsed.week?.monday ?? parsed.monday]
+      if (Array.isArray(parsed.profiles) && parsed.profiles.length > 0) {
+        const profiles: Profile[] = parsed.profiles.slice(0, MAX_PROFILES).map((p: Partial<Profile>, i: number) => ({
+          id: typeof p.id === 'string' ? p.id : newId(),
+          name: typeof p.name === 'string' ? p.name : `Głowica ${i + 1}`,
+          schedules: Array.from({ length: SCHEDULE_COUNT }, (_, j) => sanitize(p.schedules?.[j])),
+        }))
+        const activeId = profiles.some((p) => p.id === parsed.activeId) ? parsed.activeId : profiles[0].id
+        return { profiles, activeId }
+      }
+      // older versions had no profiles: two schedules, a single schedule, or a whole week (keep monday)
+      const first = newProfile('Głowica 1', parsed.schedules ?? [parsed.schedule ?? parsed.week?.monday ?? parsed.monday])
+      return { profiles: [first], activeId: first.id }
     }
   } catch {
     // ignore corrupted / unavailable storage
   }
-  return Array.from({ length: SCHEDULE_COUNT }, (_, i) => sanitize(stored[i]))
+  const first = newProfile('Głowica 1')
+  return { profiles: [first], activeId: first.id }
 }
 
 const POINT_OPTIONS = Array.from({ length: MAX_POINTS - MIN_POINTS + 1 }, (_, i) => MIN_POINTS + i)
 
 export default function App() {
-  const [schedules, setSchedules] = useState<DaySchedule[]>(loadSchedules)
+  const [state, setState] = useState<State>(loadState)
+  const { profiles, activeId } = state
+  const active = profiles.find((p) => p.id === activeId) ?? profiles[0]
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ schedules }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
       localStorage.removeItem(LEGACY_STORAGE_KEY)
     } catch {
       // storage unavailable
     }
-  }, [schedules])
+  }, [state])
+
+  const updateActive = (patch: Partial<Profile>) =>
+    setState((s) => ({ ...s, profiles: s.profiles.map((p) => (p.id === s.activeId ? { ...p, ...patch } : p)) }))
 
   const setSchedule = (index: number, day: DaySchedule) =>
-    setSchedules((all) => all.map((s, i) => (i === index ? day : s)))
+    updateActive({ schedules: active.schedules.map((s, i) => (i === index ? day : s)) })
+
+  const addProfile = (copyFrom?: Profile) =>
+    setState((s) => {
+      if (s.profiles.length >= MAX_PROFILES) return s
+      const profile = copyFrom
+        ? newProfile(`${copyFrom.name} (kopia)`, copyFrom.schedules)
+        : newProfile(nextProfileName(s.profiles))
+      return { profiles: [...s.profiles, profile], activeId: profile.id }
+    })
+
+  const removeActive = () => {
+    if (profiles.length <= 1 || !window.confirm(`Usunąć profil „${active.name}” razem z harmonogramami?`)) return
+    setState((s) => {
+      const idx = s.profiles.findIndex((p) => p.id === s.activeId)
+      const rest = s.profiles.filter((p) => p.id !== s.activeId)
+      return { profiles: rest, activeId: rest[Math.max(0, idx - 1)].id }
+    })
+  }
+
+  const canAdd = profiles.length < MAX_PROFILES
 
   return (
     <div className="app">
@@ -71,9 +127,52 @@ export default function App() {
         </p>
       </header>
 
-      <main className="schedules">
-        {schedules.map((day, i) => (
-          <ScheduleCard key={i} title={`Harmonogram ${i + 1}`} day={day} onChange={(d) => setSchedule(i, d)} />
+      <nav className="tabs" role="tablist" aria-label="Profile">
+        {profiles.map((p) => (
+          <button
+            key={p.id}
+            role="tab"
+            aria-selected={p.id === active.id}
+            className={p.id === active.id ? 'tab active' : 'tab'}
+            onClick={() => setState((s) => ({ ...s, activeId: p.id }))}
+          >
+            {p.name.trim() || 'Bez nazwy'}
+          </button>
+        ))}
+        <button
+          className="tab add"
+          onClick={() => addProfile()}
+          disabled={!canAdd}
+          title={canAdd ? 'Dodaj profil' : `Maksymalnie ${MAX_PROFILES} profili`}
+        >
+          + Dodaj profil
+        </button>
+      </nav>
+
+      <div className="profile-bar">
+        <label>
+          <span>Nazwa profilu</span>
+          <input type="text" value={active.name} maxLength={40} onChange={(e) => updateActive({ name: e.target.value })} />
+        </label>
+        <button className="btn ghost" onClick={() => addProfile(active)} disabled={!canAdd}>
+          Duplikuj
+        </button>
+        <button className="btn ghost danger" onClick={removeActive} disabled={profiles.length <= 1}>
+          Usuń profil
+        </button>
+        <span className="profile-count">
+          {profiles.length}/{MAX_PROFILES} profili
+        </span>
+      </div>
+
+      <main className="schedules" role="tabpanel">
+        {active.schedules.map((day, i) => (
+          <ScheduleCard
+            key={`${active.id}-${i}`}
+            title={`Harmonogram ${i + 1}`}
+            day={day}
+            onChange={(d) => setSchedule(i, d)}
+          />
         ))}
       </main>
     </div>

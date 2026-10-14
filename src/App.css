@@ -37,6 +37,35 @@ body { margin: 0; background: var(--bg); }
 h1 { margin: 0; font-size: 1.6rem; }
 .subtitle { margin: 4px 0 0; color: var(--muted); }
 
+.tabs {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  border-bottom: 1px solid var(--border); margin-bottom: 16px;
+}
+.tab {
+  font: inherit; font-size: 0.9rem; cursor: pointer;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 8px 14px; margin-bottom: -1px;
+  background: transparent; color: var(--muted);
+  border: 1px solid transparent; border-radius: 8px 8px 0 0;
+}
+.tab:hover:not(:disabled) { color: var(--text); }
+.tab.active {
+  background: var(--card); color: var(--text); font-weight: 600;
+  border-color: var(--border); border-bottom-color: var(--card);
+}
+.tab.add { color: var(--accent); }
+.tab:disabled { opacity: 0.4; cursor: default; }
+
+.profile-bar { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.profile-bar label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+.profile-bar input {
+  font: inherit; font-size: 0.95rem; color: var(--text); width: 260px; max-width: 100%;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 8px;
+}
+.profile-count { margin-left: auto; font-size: 0.85rem; color: var(--muted); align-self: center; }
+.btn.danger:not(:disabled):hover { color: var(--warn); border-color: var(--warn); }
+
 .points-picker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.9rem; color: var(--muted); }
 .segmented {
   display: inline-flex; border: 1px solid var(--border);
